@@ -1,38 +1,25 @@
 import os
 import time
 import re
+import json  # Importante para gerar o arquivo final
 from curl_cffi import requests
 
 # Configurações
 PASTA_DESTINO = "assets_final"
 API_URL = "https://minecraft.wiki/api.php"
+GITHUB_BASE_URL = "https://raw.githubusercontent.com/unidadestudio1/IconsMinecraft/main/assets_final/"
 
-# Links oficiais
 URLS_JSON = [
     "https://raw.githubusercontent.com/PrismarineJS/minecraft-data/master/data/pc/1.21.9/items.json",
     "https://raw.githubusercontent.com/PrismarineJS/minecraft-data/master/data/pc/1.21.9/blocks.json",
     "https://raw.githubusercontent.com/PrismarineJS/minecraft-data/master/data/pc/1.21.9/entities.json"
 ]
 
-# LISTA MANUAL: Adicione aqui os nomes que você quer forçar a busca
 NOMES_EXTRAS = [
-    "Wooden", # Tentei sem as chaves, pois a Wiki raramente usa {} nos nomes de arquivos
-    "Golden", # Tentei sem as chaves, pois a Wiki raramente usa {} nos nomes de arquivos
-    "Iron",
-    "Diamond",
-    "Stone",
-    "Copper",
-    "Netherite",
-    "Wooden Spear", # Tentei sem as chaves, pois a Wiki raramente usa {} nos nomes de arquivos
-    "Golden Spear", # Tentei sem as chaves, pois a Wiki raramente usa {} nos nomes de arquivos
-    "Iron Spear",
-    "Diamond Spear",
-    "Stone Spear",
-    "Copper Spear",
-    "Netherite Spear",
-    "Held Stone Spear", # Tentei sem as chaves, pois a Wiki raramente usa {} nos nomes de arquivos
-    "Minerito Spear",
-    "Spear"
+    "Wooden", "Golden", "Iron", "Diamond", "Stone", "Copper", "Netherite",
+    "Wooden Spear", "Golden Spear", "Iron Spear", "Diamond Spear", 
+    "Stone Spear", "Copper Spear", "Netherite Spear", "Held Stone Spear", 
+    "Minerito Spear", "Spear"
 ]
 
 if not os.path.exists(PASTA_DESTINO):
@@ -41,7 +28,6 @@ if not os.path.exists(PASTA_DESTINO):
 def obter_nomes_da_lista():
     nomes_totais = []
     print("Coletando nomes dos links oficiais...")
-    
     for url in URLS_JSON:
         try:
             response = requests.get(url, impersonate="chrome120")
@@ -53,25 +39,20 @@ def obter_nomes_da_lista():
                         nomes_totais.append(nome)
         except Exception as e:
             print(f"Falha na URL {url}: {e}")
-    
-    # Adiciona os nomes manuais à lista final
     nomes_totais.extend(NOMES_EXTRAS)
-    
     return sorted(list(set(nomes_totais)))
 
 def baixar_da_wiki(item_name):
-    # Formata nome para salvar
-    nome_arquivo = item_name.lower().replace(" ", "_")
-    nome_arquivo = re.sub(r'[\\/*?:"<>|]', '', nome_arquivo) + ".png"
-    
+    # Formata nome para o arquivo (ex: "Wooden Sword" -> "wooden_sword.png")
+    nome_limpo = re.sub(r'[\\/*?:"<>|]', '', item_name)
+    nome_arquivo = nome_limpo.lower().replace(" ", "_") + ".png"
     caminho_save = os.path.join(PASTA_DESTINO, nome_arquivo)
     
+    # Se já existir, apenas retornamos o nome para o JSON
     if os.path.exists(caminho_save):
-        return False
+        return nome_arquivo
 
-    # Tenta buscar com .png e sem .png no título
     buscas = [f"File:{item_name}.png", f"File:{item_name}"]
-
     for titulo in buscas:
         params = {
             "action": "query",
@@ -80,12 +61,10 @@ def baixar_da_wiki(item_name):
             "prop": "imageinfo",
             "iiprop": "url"
         }
-
         try:
             res = requests.get(API_URL, params=params, impersonate="chrome120")
             data = res.json()
             pages = data.get("query", {}).get("pages", {})
-            
             for page_id in pages:
                 info = pages[page_id].get("imageinfo", [])
                 if info:
@@ -94,20 +73,34 @@ def baixar_da_wiki(item_name):
                     img_data = requests.get(url_final, impersonate="chrome120").content
                     with open(caminho_save, 'wb') as f:
                         f.write(img_data)
-                    return True
+                    return nome_arquivo
         except:
             continue
-    return False
+    return None
 
 if __name__ == "__main__":
-    lista = obter_nomes_da_lista()
-    total = len(lista)
+    lista_nomes = obter_nomes_da_lista()
+    total = len(lista_nomes)
+    assets_json = []  # Lista que guardará os dados para o JSON
+
     print(f"Sucesso! {total} nomes na lista de busca.")
     
-    for i, nome in enumerate(lista):
-        sucesso = baixar_da_wiki(nome)
-        if i % 10 == 0 and i > 0:
+    for i, nome in enumerate(lista_nomes):
+        nome_arquivo_gerado = baixar_da_wiki(nome)
+        
+        # Se conseguimos a imagem (baixando agora ou se já existia)
+        if nome_arquivo_gerado:
+            assets_json.append({
+                "name": nome,
+                "icon": GITHUB_BASE_URL + nome_arquivo_gerado
+            })
+
+        if i % 20 == 0 and i > 0:
             print(f"Progresso: {i}/{total}...")
             time.sleep(0.1)
 
-    print("\nProcesso finalizado!")
+    # Salva o arquivo JSON final
+    with open("minecraft_assets.json", "w", encoding="utf-8") as f:
+        json.dump(assets_json, f, indent=2, ensure_ascii=False)
+
+    print(f"\nProcesso finalizado! O arquivo 'minecraft_assets.json' foi criado com {len(assets_json)} itens.")
